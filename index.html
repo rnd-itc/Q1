@@ -28,24 +28,28 @@
 <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
 <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.min.js"></script>
 
-<!-- Firebase SDK (compat — global API, works with non-module Babel scripts) -->
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<!-- Firebase Realtime Database -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-  // ── Firebase initialization ──────────────────────────────────────────────
-  const firebaseConfig = {
-    apiKey:            "AIzaSyAtWyHl5__xGnlcX0FtntdHg2Jx3Jv2IAQ",
-    authDomain:        "itc-portal-bcd1f.firebaseapp.com",
-    projectId:         "itc-portal-bcd1f",
-    storageBucket:     "itc-portal-bcd1f.firebasestorage.app",
-    messagingSenderId: "512874515039",
-    appId:             "1:512874515039:web:38a667bb68d4adb40869ea"
-  };
-  window.firebaseApp  = firebase.initializeApp(firebaseConfig);
-  window.db           = firebase.firestore();
-  window.firebaseAuth = firebase.auth();
-  // ─────────────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyAtWyHl5__xGnlcX0FtntdHg2Jx3Jv2IAQ",
+  authDomain: "itc-portal-bcd1f.firebaseapp.com",
+  databaseURL: "https://itc-portal-bcd1f-default-rtdb.firebaseio.com",
+  projectId: "itc-portal-bcd1f",
+  storageBucket: "itc-portal-bcd1f.firebasestorage.app",
+  messagingSenderId: "512874515039",
+  appId: "1:512874515039:web:38a667bb68d4adb40869ea"
+};
+let _fbDb = null;
+try {
+  firebase.initializeApp(firebaseConfig);
+  _fbDb = firebase.database();
+  console.log('[Firebase] initialized');
+} catch (e) {
+  console.warn('[Firebase] init failed — falling back to localStorage only', e);
+}
+window._fbDb = _fbDb;
 </script>
 
 <style>
@@ -677,7 +681,7 @@
         border: 4px solid #1a233220; border-top-color: #c8a464;
         border-radius: 50%; animation: bootspin 0.9s linear infinite;"></div>
       <div id="boot-title" style="font-size: 1.4rem; font-weight: 700; margin-bottom: 0.5rem;">טוען את הפורטל...</div>
-      <div id="boot-detail" style="color: #1a233299; font-size: 0.95rem; line-height: 1.6;">רגע, מאתחל את הספריות</div>
+      <div id="boot-detail" style="color: #1a233299; font-size: 0.95rem; line-height: 1.6;">רגע, מתחבר לענן ☁️</div>
     </div>
   </div>
 </div>
@@ -697,7 +701,6 @@ window.addEventListener('load', function() {
     if (typeof XLSX === 'undefined')        missing.push('XLSX (SheetJS)');
     if (typeof QRCode === 'undefined')      missing.push('QRCode');
     if (typeof Recharts === 'undefined')    missing.push('Recharts');
-    if (typeof firebase === 'undefined')    missing.push('Firebase');
     if (missing.length) {
       document.getElementById('boot-spinner').style.display = 'none';
       document.getElementById('boot-title').textContent = 'בעיית טעינה';
@@ -904,16 +907,63 @@ const circleLabel = (id) => findCircle(id)?.label || '';
 
 const uuid = (prefix='id') => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
 
+const _db = window._fbDb;
+const FB_ROOT = 'itc_portal';
+
 const storage = {
+  _cache: {},
+
+  async init() {
+    if (!_db) return;
+    try {
+      const snap = await _db.ref(FB_ROOT).once('value');
+      const data = snap.val() || {};
+      const keys = Object.values(STORAGE_KEYS);
+      for (const key of keys) {
+        if (data[key] !== undefined) {
+          this._cache[key] = data[key];
+          try { localStorage.setItem(key, JSON.stringify(data[key])); } catch {}
+        }
+      }
+      console.log('[Firebase] data loaded from cloud');
+    } catch (e) {
+      console.warn('[Firebase] init read failed — using localStorage', e);
+    }
+  },
+
+  listen(onChange) {
+    if (!_db) return;
+    const keys = Object.values(STORAGE_KEYS);
+    for (const key of keys) {
+      _db.ref(FB_ROOT + '/' + key).on('value', (snap) => {
+        const val = snap.val();
+        if (val === null) return;
+        const prev = JSON.stringify(this._cache[key]);
+        const next = JSON.stringify(val);
+        if (prev !== next) {
+          this._cache[key] = val;
+          try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+          if (onChange) onChange(key, val);
+        }
+      });
+    }
+  },
+
   get(key, fallback) {
+    if (this._cache[key] !== undefined) return this._cache[key];
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     } catch(e) { return fallback; }
   },
+
   set(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); return true; }
-    catch(e) { console.warn('storage set failed', e); return false; }
+    try {
+      this._cache[key] = value;
+      localStorage.setItem(key, JSON.stringify(value));
+      if (_db) _db.ref(FB_ROOT + '/' + key).set(value).catch(e => console.warn('[Firebase] write failed', e));
+      return true;
+    } catch(e) { console.warn('storage set failed', e); return false; }
   },
 };
 
@@ -4591,6 +4641,23 @@ function App() {
   useEffect(() => { storage.set(STORAGE_KEYS.folders, folders); }, [folders]);
   useEffect(() => { storage.set(STORAGE_KEYS.notifications, notifications); }, [notifications]);
 
+  // Firebase realtime sync
+  useEffect(() => {
+    const setterMap = {
+      [STORAGE_KEYS.evals]:         setEvals,
+      [STORAGE_KEYS.responses]:     setResponses,
+      [STORAGE_KEYS.templates]:     setUserTemplates,
+      [STORAGE_KEYS.series]:        setSeries,
+      [STORAGE_KEYS.users]:         setUsers,
+      [STORAGE_KEYS.folders]:       setFolders,
+      [STORAGE_KEYS.notifications]: setNotifications,
+    };
+    storage.listen((key, value) => {
+      const setter = setterMap[key];
+      if (setter) setter(value);
+    });
+  }, []);
+
   // Initialize default admin user + restore session
   useEffect(() => {
     const init = async () => {
@@ -5536,9 +5603,15 @@ function QuestionnaireCard({ form, series, responseCount, canView, isAdmin, onDa
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MOUNT
+// MOUNT — load cloud data, then render
 // ═══════════════════════════════════════════════════════════════════
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+(async function boot() {
+  const status = document.getElementById('boot-detail');
+  if (status) status.textContent = 'מסנכרן עם הענן...';
+  try { await storage.init(); } catch (e) { console.warn('Firebase init skipped', e); }
+  if (status) status.textContent = 'מאתחל את הפורטל...';
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
 
 </script>
 </body>
