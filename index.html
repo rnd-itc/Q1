@@ -28,6 +28,26 @@
 <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
 <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.min.js"></script>
 
+<!-- Firebase SDK (compat — global API, works with non-module Babel scripts) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script>
+  // ── Firebase initialization ──────────────────────────────────────────────
+  const firebaseConfig = {
+    apiKey:            "AIzaSyAtWyHl5__xGnlcX0FtntdHg2Jx3Jv2IAQ",
+    authDomain:        "itc-portal-bcd1f.firebaseapp.com",
+    projectId:         "itc-portal-bcd1f",
+    storageBucket:     "itc-portal-bcd1f.firebasestorage.app",
+    messagingSenderId: "512874515039",
+    appId:             "1:512874515039:web:38a667bb68d4adb40869ea"
+  };
+  window.firebaseApp  = firebase.initializeApp(firebaseConfig);
+  window.db           = firebase.firestore();
+  window.firebaseAuth = firebase.auth();
+  // ─────────────────────────────────────────────────────────────────────────
+</script>
+
 <style>
   :root {
     /* === Dominant dark colors === */
@@ -677,6 +697,7 @@ window.addEventListener('load', function() {
     if (typeof XLSX === 'undefined')        missing.push('XLSX (SheetJS)');
     if (typeof QRCode === 'undefined')      missing.push('QRCode');
     if (typeof Recharts === 'undefined')    missing.push('Recharts');
+    if (typeof firebase === 'undefined')    missing.push('Firebase');
     if (missing.length) {
       document.getElementById('boot-spinner').style.display = 'none';
       document.getElementById('boot-title').textContent = 'בעיית טעינה';
